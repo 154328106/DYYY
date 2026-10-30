@@ -3984,6 +3984,37 @@ static NSString *const kDYYYLongPressCopyEnabledKey = @"DYYYLongPressCopyTextEna
 
 %end
 
+static UIView *DYYYFindDescriptionLabel(UIView *view, NSInteger depth) {
+    if (!view || depth < 0) return nil;
+    if ([view isKindOfClass:%c(AWEPlayInteractionDescriptionLabel)]) return view;
+    for (UIView *subview in view.subviews) {
+        UIView *found = DYYYFindDescriptionLabel(subview, depth - 1);
+        if (found) return found;
+    }
+    return nil;
+}
+
+// 隐藏文案后它的位置仍被占着：算出文案元素底边比昵称元素底边低多少，把昵称下移这么多来补位
+static CGFloat DYYYHiddenDescriptionGap(UIView *nicknameElement) {
+    if (!DYYYGetBool(@"DYYYHideDescription") || !nicknameElement.window) return 0;
+    UIView *container = nicknameElement.superview;
+    UIView *descLabel = nil;
+    for (NSInteger level = 0; level < 2 && container && !descLabel; level++) {
+        descLabel = DYYYFindDescriptionLabel(container, 6);
+        if (!descLabel) container = container.superview;
+    }
+    if (!descLabel) return 0;
+    UIView *descElement = descLabel;
+    while (descElement && descElement != container && ![descElement isKindOfClass:%c(AWEBaseElementView)]) {
+        descElement = descElement.superview;
+    }
+    if (!descElement || descElement == container) descElement = descLabel;
+    CGFloat descBottom = CGRectGetMaxY([descElement convertRect:descElement.bounds toView:nil]);
+    CGFloat nicknameBottom = CGRectGetMaxY([nicknameElement convertRect:nicknameElement.bounds toView:nil]);
+    CGFloat gap = descBottom - nicknameBottom;
+    return (gap > 0 && gap < 200) ? gap : 0;
+}
+
 %hook AWEUserNameLabel
 
 - (void)layoutSubviews {
@@ -4007,6 +4038,7 @@ static NSString *const kDYYYLongPressCopyEnabledKey = @"DYYYLongPressCopyTextEna
 
     // 检查祖父视图是否为 AWEBaseElementView 类型
     if (grandParentView && [grandParentView.superview isKindOfClass:%c(AWEBaseElementView)]) {
+        verticalOffset += DYYYHiddenDescriptionGap(grandParentView.superview);
         CGRect scaledFrame = grandParentView.frame;
         CGFloat translationX = -scaledFrame.origin.x;
 

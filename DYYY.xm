@@ -11836,28 +11836,6 @@ static void DYYYCollapseHiddenDescription(UIView *stack, UIView *descElement) {
     }
 }
 
-// 诊断：开着「隐藏视频文案」时，把前几个左侧元素栈的结构写到 Documents/DYYY_hide_desc_debug.txt
-static void DYYYDumpDescriptionStack(UIView *stack, NSString *stage) {
-    static NSInteger dumpCount = 0;
-    if (!DYYYGetBool(@"DYYYHideDescription") || dumpCount >= 6 || !stack.window) return;
-    dumpCount++;
-    NSMutableString *log = [NSMutableString stringWithFormat:@"==== %@ %@ stack=%@ frame=%@ transform=%@\n", [NSDate date], stage, NSStringFromClass([stack class]),
-                                                            NSStringFromCGRect(stack.frame), NSStringFromCGAffineTransform(stack.transform)];
-    for (UIView *sub in stack.subviews) {
-        NSString *name = [sub respondsToSelector:@selector(elementClassName)] ? [sub performSelector:@selector(elementClassName)] : @"-";
-        [log appendFormat:@"  %@ element=%@ frame=%@ hidden=%d alpha=%.2f\n", NSStringFromClass([sub class]), name, NSStringFromCGRect(sub.frame), sub.hidden, sub.alpha];
-    }
-    NSString *path = [[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject] stringByAppendingPathComponent:@"DYYY_hide_desc_debug.txt"];
-    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
-    if (!handle) {
-        [log writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        return;
-    }
-    [handle seekToEndOfFile];
-    [handle writeData:[log dataUsingEncoding:NSUTF8StringEncoding]];
-    [handle closeFile];
-}
-
 %hook AWEElementStackView
 
 - (void)setAlpha:(CGFloat)alpha {
@@ -11909,9 +11887,7 @@ static void DYYYDumpDescriptionStack(UIView *stack, NSString *stage) {
     %orig;
 
     if (descriptionElement) {
-        DYYYDumpDescriptionStack(self, @"after-orig");
         DYYYCollapseHiddenDescription(self, descriptionElement);
-        DYYYDumpDescriptionStack(self, @"after-collapse");
     }
 
     UIViewController *viewController = [DYYYUtils firstAvailableViewControllerFromView:self];

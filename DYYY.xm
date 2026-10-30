@@ -3984,37 +3984,6 @@ static NSString *const kDYYYLongPressCopyEnabledKey = @"DYYYLongPressCopyTextEna
 
 %end
 
-static UIView *DYYYFindDescriptionLabel(UIView *view, NSInteger depth) {
-    if (!view || depth < 0) return nil;
-    if ([view isKindOfClass:%c(AWEPlayInteractionDescriptionLabel)]) return view;
-    for (UIView *subview in view.subviews) {
-        UIView *found = DYYYFindDescriptionLabel(subview, depth - 1);
-        if (found) return found;
-    }
-    return nil;
-}
-
-// 隐藏文案后它的位置仍被占着：算出文案元素底边比昵称元素底边低多少，把昵称下移这么多来补位
-static CGFloat DYYYHiddenDescriptionGap(UIView *nicknameElement) {
-    if (!DYYYGetBool(@"DYYYHideDescription") || !nicknameElement.window) return 0;
-    UIView *container = nicknameElement.superview;
-    UIView *descLabel = nil;
-    for (NSInteger level = 0; level < 2 && container && !descLabel; level++) {
-        descLabel = DYYYFindDescriptionLabel(container, 6);
-        if (!descLabel) container = container.superview;
-    }
-    if (!descLabel) return 0;
-    UIView *descElement = descLabel;
-    while (descElement && descElement != container && ![descElement isKindOfClass:%c(AWEBaseElementView)]) {
-        descElement = descElement.superview;
-    }
-    if (!descElement || descElement == container) descElement = descLabel;
-    CGFloat descBottom = CGRectGetMaxY([descElement convertRect:descElement.bounds toView:nil]);
-    CGFloat nicknameBottom = CGRectGetMaxY([nicknameElement convertRect:nicknameElement.bounds toView:nil]);
-    CGFloat gap = descBottom - nicknameBottom;
-    return (gap > 0 && gap < 200) ? gap : 0;
-}
-
 %hook AWEUserNameLabel
 
 - (void)layoutSubviews {
@@ -4038,7 +4007,6 @@ static CGFloat DYYYHiddenDescriptionGap(UIView *nicknameElement) {
 
     // 检查祖父视图是否为 AWEBaseElementView 类型
     if (grandParentView && [grandParentView.superview isKindOfClass:%c(AWEBaseElementView)]) {
-        verticalOffset += DYYYHiddenDescriptionGap(grandParentView.superview);
         CGRect scaledFrame = grandParentView.frame;
         CGFloat translationX = -scaledFrame.origin.x;
 
@@ -11826,6 +11794,70 @@ static Class GuideViewClass = nil;
 static Class MuteViewClass = nil;
 static Class TagViewClass = nil;
 
+// 隐藏视频文案：左侧元素栈里整块隐藏文案元素，并把它上方的元素下移补上空位
+static char kDYYYDescriptionShiftKey;
+
+static UIView *DYYYDescriptionElementInStack(UIView *stack) {
+    for (UIView *sub in stack.subviews) {
+        if (![sub respondsToSelector:@selector(elementClassName)]) continue;
+        id name = [sub performSelector:@selector(elementClassName)];
+        if ([name isKindOfClass:[NSString class]] && [name isEqualToString:@"AWEPlayInteractionDescriptionElement"]) return sub;
+    }
+    return nil;
+}
+
+static void DYYYCollapseHiddenDescription(UIView *stack, UIView *descElement) {
+    BOOL collapse = descElement.hidden && [objc_getAssociatedObject(descElement, &kDYYYHiddenDescriptionKey) boolValue];
+    CGRect descFrame = descElement.frame;
+    NSMutableArray<UIView *> *above = [NSMutableArray array];
+    CGFloat aboveBottom = -CGFLOAT_MAX;
+    BOOL overlapped = NO;
+    for (UIView *sub in stack.subviews) {
+        // 先撤掉上一轮自己加的位移（元素栈没重排时位置还停在我们改过的地方）
+        NSArray *applied = objc_getAssociatedObject(sub, &kDYYYDescriptionShiftKey);
+        if (applied && fabs(sub.center.y - [applied[0] doubleValue]) < 0.5) {
+            sub.center = CGPointMake(sub.center.x, sub.center.y - [applied[1] doubleValue]);
+        }
+        objc_setAssociatedObject(sub, &kDYYYDescriptionShiftKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (!collapse || sub == descElement || sub.hidden) continue;
+        if (CGRectGetMaxY(sub.frame) <= CGRectGetMinY(descFrame) + 0.5) {
+            [above addObject:sub];
+            aboveBottom = MAX(aboveBottom, CGRectGetMaxY(sub.frame));
+        } else if (CGRectGetMinY(sub.frame) < CGRectGetMaxY(descFrame) - 0.5) {
+            overlapped = YES;  // 有元素已经占进文案的位置：元素栈自己折叠过了，不用再挪
+        }
+    }
+    if (!collapse || overlapped || above.count == 0 || descFrame.size.height < 1) return;
+    CGFloat shift = CGRectGetMaxY(descFrame) - aboveBottom;
+    if (shift <= 0 || shift > 300) return;
+    for (UIView *sub in above) {
+        sub.center = CGPointMake(sub.center.x, sub.center.y + shift);
+        objc_setAssociatedObject(sub, &kDYYYDescriptionShiftKey, @[ @(sub.center.y), @(shift) ], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+}
+
+// 诊断：开着「隐藏视频文案」时，把前几个左侧元素栈的结构写到 Documents/DYYY_hide_desc_debug.txt
+static void DYYYDumpDescriptionStack(UIView *stack, NSString *stage) {
+    static NSInteger dumpCount = 0;
+    if (!DYYYGetBool(@"DYYYHideDescription") || dumpCount >= 6 || !stack.window) return;
+    dumpCount++;
+    NSMutableString *log = [NSMutableString stringWithFormat:@"==== %@ %@ stack=%@ frame=%@ transform=%@\n", [NSDate date], stage, NSStringFromClass([stack class]),
+                                                            NSStringFromCGRect(stack.frame), NSStringFromCGAffineTransform(stack.transform)];
+    for (UIView *sub in stack.subviews) {
+        NSString *name = [sub respondsToSelector:@selector(elementClassName)] ? [sub performSelector:@selector(elementClassName)] : @"-";
+        [log appendFormat:@"  %@ element=%@ frame=%@ hidden=%d alpha=%.2f\n", NSStringFromClass([sub class]), name, NSStringFromCGRect(sub.frame), sub.hidden, sub.alpha];
+    }
+    NSString *path = [[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject] stringByAppendingPathComponent:@"DYYY_hide_desc_debug.txt"];
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!handle) {
+        [log writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        return;
+    }
+    [handle seekToEndOfFile];
+    [handle writeData:[log dataUsingEncoding:NSUTF8StringEncoding]];
+    [handle closeFile];
+}
+
 %hook AWEElementStackView
 
 - (void)setAlpha:(CGFloat)alpha {
@@ -11869,7 +11901,18 @@ static Class TagViewClass = nil;
 }
 
 - (void)layoutSubviews {
+    UIView *descriptionElement = DYYYDescriptionElementInStack(self);
+    if (descriptionElement) {
+        DYYYApplyHideDescription(descriptionElement);
+    }
+
     %orig;
+
+    if (descriptionElement) {
+        DYYYDumpDescriptionStack(self, @"after-orig");
+        DYYYCollapseHiddenDescription(self, descriptionElement);
+        DYYYDumpDescriptionStack(self, @"after-collapse");
+    }
 
     UIViewController *viewController = [DYYYUtils firstAvailableViewControllerFromView:self];
 

@@ -1375,6 +1375,10 @@
         for (NSDictionary *videoDict in videoList) {
             NSString *url = videoDict[@"url"];
             NSString *level = videoDict[@"level"];
+            // 部分接口会在清晰度列表里夹带引流条目（如「TG交流群：t.me/xxx」），不是可下载资源，直接跳过
+            if ([url containsString:@"t.me/"] || [level containsString:@"t.me/"] || [level containsString:@"交流群"]) {
+                continue;
+            }
             if (url.length > 0 && level.length > 0) {
                 AWEUserSheetAction *qualityAction = [NSClassFromString(@"AWEUserSheetAction") actionWithTitle:level
                                                                                                       imgName:nil

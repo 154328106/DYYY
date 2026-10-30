@@ -3840,10 +3840,25 @@ static void DYYYDisableAVPlayerItemHDRMetadata(AVPlayerItem *item) {
 
 %end
 
+// 隐藏视频文案：只还原自己隐藏过的视图，不干扰抖音自身对文案的显隐控制
+static char kDYYYHiddenDescriptionKey;
+static void DYYYApplyHideDescription(UIView *view) {
+    BOOL hideDescription = DYYYGetBool(@"DYYYHideDescription");
+    BOOL hiddenByDYYY = [objc_getAssociatedObject(view, &kDYYYHiddenDescriptionKey) boolValue];
+    if (hideDescription && !view.hidden) {
+        view.hidden = YES;
+        objc_setAssociatedObject(view, &kDYYYHiddenDescriptionKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    } else if (!hideDescription && hiddenByDYYY) {
+        view.hidden = NO;
+        objc_setAssociatedObject(view, &kDYYYHiddenDescriptionKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+}
+
 %hook AWEPlayInteractionDescriptionScrollView
 
 - (void)layoutSubviews {
     %orig;
+    DYYYApplyHideDescription(self);
 
     self.transform = CGAffineTransformIdentity;
 
@@ -3943,6 +3958,7 @@ static NSString *const kDYYYLongPressCopyEnabledKey = @"DYYYLongPressCopyTextEna
 
 - (void)layoutSubviews {
     %orig;
+    DYYYApplyHideDescription(self);
 
     self.transform = CGAffineTransformIdentity;
 

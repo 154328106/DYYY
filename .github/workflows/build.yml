@@ -65,7 +65,7 @@ jobs:
   build:
     needs: changes
     if: needs.changes.outputs.should_build == 'true'
-    runs-on: macos-latest
+    runs-on: macos-15-intel
 
     steps:
       - uses: actions/checkout@v6

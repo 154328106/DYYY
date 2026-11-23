@@ -10529,34 +10529,26 @@ static NSHashTable *processedParentViews = nil;
 
 %end
 
-// 底栏高度
-%hook AWENormalModeTabBarPlusButton
+// 底栏加号：拦截工厂方法，按钮不创建即可隐藏（旧版 setHidden/didMoveToWindow 在新版抖音已失效）
+%hook AWENormalModeTabBarGeneralPlusButton
 
-- (void)setHidden:(BOOL)hidden {
-    BOOL hidePlus = DYYYGetBool(@"DYYYHidePlusButton");
-    %orig(hidePlus ? YES : hidden);
-
-    if (hidePlus) {
-        self.userInteractionEnabled = NO;
++ (id)button {
+    BOOL isHidePlusButton = DYYYGetBool(@"DYYYHidePlusButton");
+    if (isHidePlusButton) {
+        return nil;
     }
+    return %orig;
 }
 
-- (void)didMoveToWindow {
-    %orig;
+%end
 
-    if (self.window && DYYYGetBool(@"DYYYHidePlusButton")) {
-        self.userInteractionEnabled = NO;
-        self.hidden = YES;
-    }
-}
+%hook AWENormalModeTabBarGeneralPlusInnerButton
 
-- (void)layoutSubviews {
-    %orig;
-
++ (id)buttonWithParams:(id)arg1 {
     if (DYYYGetBool(@"DYYYHidePlusButton")) {
-        self.userInteractionEnabled = NO;
-        self.hidden = YES;
+        return nil;
     }
+    return %orig;
 }
 
 %end
